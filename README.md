@@ -16,6 +16,11 @@ branch `oneplus/sm8250_t_13.1_op8` (shallow clone), defconfig
   runners no longer provide).
 - `TECHPACK=` skips the empty gitlink dirs `techpack/{camera,display,video}`
   (their sources live in separate repos; stock vendor modules stay in use).
+- Known deviation: `CONFIG_QCOM_FSA4480_I2C` is disabled. The built-in
+  fsa4480 USB-C audio-switch driver is the only non-techpack driver that
+  references display-techpack symbols (`get_main_display` / `dsi_display.h`);
+  that techpack repo is not publicly available, so the driver is disabled in
+  CI. Everything else is stock kona-perf_defconfig.
 - Devicetree + oplus vendor sources from
   [OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8250](https://github.com/OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8250)
   are copied into the kernel tree's `vendor/` directory: `vendor/qcom/proprietary/devicetree-4.19`

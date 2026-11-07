@@ -110,14 +110,30 @@ jobs:
             CLANG_TRIPLE=aarch64-linux-gnu- \
             TECHPACK= BRAND_SHOW_FLAG=oneplus \
             vendor/kona-perf_defconfig
+          # fsa4480-i2c (built-in) is the only non-techpack driver that
+          # references display-techpack symbols (get_main_display /
+          # dsi_display.h, whose source repo is not public). Disable it;
+          # documented deviation: USB-C analog audio switch driver absent.
+          echo "# CONFIG_QCOM_FSA4480_I2C is not set" >> out/.config
+          make O=out ARCH=arm64 \
+            CC=clang \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            TECHPACK= BRAND_SHOW_FLAG=oneplus \
+            olddefconfig
           echo "--- key config ---"
           grep -E "^CONFIG_(ARCH_KONA|ARCH_QCOM|LOCALVERSION|MODVERSIONS|MODULE_SIG|PREEMPT|SMP|BUILD_ARM64_UNCOMPRESSED_KERNEL)" out/.config
+          grep -E "FSA4480" out/.config || true
 
       - name: Build Image.gz, dtbs, modules
         working-directory: kernel/sm8250
         shell: bash
         run: |
           export PATH="$PWD/prebuilts-master/clang/host/linux-x86/clang-r399163b/bin:$PATH"
+          # Stock code was built with older sdclang; clang 11 is stricter.
+          # Downgrade the tree's -Werror= diagnostic classes to plain warnings
+          # (same policy classes as Makefile lines 1041-1049).
+          export KCFLAGS="-Wno-error=strict-prototypes -Wno-error=implicit-int -Wno-error=date-time -Wno-error=incompatible-pointer-types -Wno-error=designated-init"
           make O=out ARCH=arm64 \
             CC=clang \
             CROSS_COMPILE=aarch64-linux-gnu- \
