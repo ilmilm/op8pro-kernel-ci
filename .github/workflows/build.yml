@@ -49,16 +49,31 @@ jobs:
           # (dangling until the devicetree repo is placed, so use readlink, not cat)
           readlink kernel/arch/arm64/boot/dts/vendor
 
-      - name: Place devicetree sources at symlink target
+      - name: Place devicetree + oplus vendor sources at symlink targets
         run: |
           git clone --depth=1 --single-branch \
             --branch "$KERNEL_BRANCH" \
             "https://github.com/$DT_REPO" dtrepo
-          mkdir -p kernel/vendor/qcom/proprietary
-          cp -a dtrepo/vendor/qcom/proprietary/devicetree-4.19 kernel/vendor/qcom/proprietary/
+          # The kernel tree has ~80 git symlinks into <root>/vendor/qcom/... and
+          # <root>/vendor/oplus/{kernel,kernel_4.19,secure,sensor}/...; the
+          # modules-and-devicetree repo provides the whole vendor/ tree.
+          # The kernel repo itself has no vendor/ dir, so this is a pure addition.
+          cp -a dtrepo/vendor/. kernel/vendor/
           test -f kernel/vendor/qcom/proprietary/devicetree-4.19/qcom/kona.dts
           test -f kernel/vendor/qcom/proprietary/devicetree-4.19/Makefile
-          echo "devicetree-4.19 placed OK"
+          test -d kernel/vendor/oplus/kernel/oplus_performance/sched_assist
+          echo "vendor tree placed OK"
+          cd kernel
+          git ls-tree -r HEAD | awk '$1=="120000"{print $4}' | while read -r p; do
+            t=$(git cat-file blob "HEAD:$p")
+            d=$(dirname "$p")
+            [ -e "$d/$t" ] || echo "DANGLING: $p -> $t"
+          done | tee /tmp/dangling.txt
+          if [ -s /tmp/dangling.txt ]; then
+            echo "::error::Dangling symlinks remain (see list above)"
+            exit 1
+          fi
+          echo "all git symlinks resolve"
 
       - name: Install clang r399163b
         run: |

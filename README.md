@@ -16,11 +16,15 @@ branch `oneplus/sm8250_t_13.1_op8` (shallow clone), defconfig
   runners no longer provide).
 - `TECHPACK=` skips the empty gitlink dirs `techpack/{camera,display,video}`
   (their sources live in separate repos; stock vendor modules stay in use).
-- Devicetree sources from
+- Devicetree + oplus vendor sources from
   [OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8250](https://github.com/OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8250)
-  are placed at `vendor/qcom/proprietary/devicetree-4.19`, which is what the
-  git symlink `arch/arm64/boot/dts/vendor` points at. `BRAND_SHOW_FLAG=oneplus`
-  selects the OnePlus sm8250 panel dirs.
+  are copied into the kernel tree's `vendor/` directory: `vendor/qcom/proprietary/devicetree-4.19`
+  (target of the git symlink `arch/arm64/boot/dts/vendor`) and
+  `vendor/oplus/{kernel,kernel_4.19,secure,sensor}` (targets of ~80 git
+  symlinks such as `kernel/sched_assist`, `drivers/power/oplus`, `fs/erofs`,
+  `mm/multi_kswapd` ...). `BRAND_SHOW_FLAG=oneplus` selects the OnePlus
+  sm8250 panel dirs for the dtb build. The workflow verifies every git
+  symlink resolves before configuring.
 - Targets: `Image.gz dtbs modules` -> Image (uncompressed), Image.gz,
   `dtb.img` (cat of `out/arch/arm64/boot/dts/vendor/*/*.dtb`, same recipe as
   AndroidKernel.mk line 211).
