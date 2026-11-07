@@ -15,6 +15,18 @@ env:
   # git symlinks in the tree: all 85 external symlinks resolve to a vendor/
   # directory two levels ABOVE the kernel repo root (i.e. <workspace>/vendor).
   KDIR: kernel/sm8250
+  # Oplus feature make variables: the Android build system normally passes
+  # these into the kernel make (OplusKernelEnvConfig.mk only injects the CPP
+  # -D macros; the obj gating in subsystem Makefiles is done via these make
+  # vars). Call sites are compiled unconditionally (macros are always on), so
+  # the implementations below MUST be built or vmlinux fails to link.
+  OPLUS_FEATURES: >-
+    OPLUS_FEATURE_UFSPLUS=yes
+    OPLUS_FEATURE_UFS_SHOW_LATENCY=yes
+    OPLUS_FEATURE_PADL_STATISTICS=yes
+    OPLUS_FEATURE_WIFI_ROUTERBOOST=yes
+    OPLUS_FEATURE_PROCESS_RECLAIM=yes
+    OPLUS_FEATURE_MEMLEAK_DETECT=yes
 
 jobs:
   build:
@@ -65,6 +77,14 @@ jobs:
           test -f vendor/qcom/proprietary/devicetree-4.19/qcom/kona.dts
           test -f vendor/qcom/proprietary/devicetree-4.19/Makefile
           test -d vendor/oplus/kernel/oplus_performance/sched_assist
+          # techpack/{camera,display,video} gitlink sources live in the dt
+          # repo under kernel/msm-4.19/techpack/. techpack/display is required
+          # at vmlinux link time (msm_drm_register_client et al. are called by
+          # built-in touchpanel/fingerprint/charger drivers); camera and video
+          # build nothing with kona-perf_defconfig but must exist as dirs.
+          cp -a dtrepo/kernel/msm-4.19/techpack/. "$KDIR/techpack/"
+          test -f "$KDIR/techpack/display/Makefile"
+          test -f "$KDIR/techpack/display/msm/msm_atomic.c"
           rm -rf dtrepo
           # Compiled oplus charger code reaches the QC power-supply headers via
           # quoted includes like "../../../../kernel/msm-4.19/drivers/power/
@@ -101,25 +121,22 @@ jobs:
         run: |
           export PATH="$PWD/prebuilts-master/clang/host/linux-x86/clang-r399163b/bin:$PATH"
           # CC=clang (command-line) bypasses scripts/gcc-wrapper.py (python2-only).
-          # TECHPACK= skips empty gitlink dirs techpack/{camera,display,video}.
           # BRAND_SHOW_FLAG=oneplus selects the OnePlus sm8250 panel dirs in
           # vendor/qcom/proprietary/devicetree-4.19/Makefile.
+          # $OPLUS_FEATURES enables the make-gated oplus feature objects.
           make O=out ARCH=arm64 \
             CC=clang \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CLANG_TRIPLE=aarch64-linux-gnu- \
-            TECHPACK= BRAND_SHOW_FLAG=oneplus \
+            BRAND_SHOW_FLAG=oneplus \
+            $OPLUS_FEATURES \
             vendor/kona-perf_defconfig
-          # fsa4480-i2c (built-in) is the only non-techpack driver that
-          # references display-techpack symbols (get_main_display /
-          # dsi_display.h, whose source repo is not public). Disable it;
-          # documented deviation: USB-C analog audio switch driver absent.
-          echo "# CONFIG_QCOM_FSA4480_I2C is not set" >> out/.config
           make O=out ARCH=arm64 \
             CC=clang \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CLANG_TRIPLE=aarch64-linux-gnu- \
-            TECHPACK= BRAND_SHOW_FLAG=oneplus \
+            BRAND_SHOW_FLAG=oneplus \
+            $OPLUS_FEATURES \
             olddefconfig
           echo "--- key config ---"
           grep -E "^CONFIG_(ARCH_KONA|ARCH_QCOM|LOCALVERSION|MODVERSIONS|MODULE_SIG|PREEMPT|SMP|BUILD_ARM64_UNCOMPRESSED_KERNEL)" out/.config
@@ -138,7 +155,8 @@ jobs:
             CC=clang \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CLANG_TRIPLE=aarch64-linux-gnu- \
-            TECHPACK= BRAND_SHOW_FLAG=oneplus \
+            BRAND_SHOW_FLAG=oneplus \
+            $OPLUS_FEATURES \
             -j"$(nproc)" \
             Image.gz dtbs modules 2>&1 | tee build.log
           df -h

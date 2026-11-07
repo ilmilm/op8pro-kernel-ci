@@ -14,13 +14,19 @@ branch `oneplus/sm8250_t_13.1_op8` (shallow clone), defconfig
   `scripts/gcc-wrapper.py` (the tree's intended invocation
   `REAL_CC=<clang> CLANG_TRIPLE=aarch64-linux-gnu-` needs python2, which GH
   runners no longer provide).
-- `TECHPACK=` skips the empty gitlink dirs `techpack/{camera,display,video}`
-  (their sources live in separate repos; stock vendor modules stay in use).
-- Known deviation: `CONFIG_QCOM_FSA4480_I2C` is disabled. The built-in
-  fsa4480 USB-C audio-switch driver is the only non-techpack driver that
-  references display-techpack symbols (`get_main_display` / `dsi_display.h`);
-  that techpack repo is not publicly available, so the driver is disabled in
-  CI. Everything else is stock kona-perf_defconfig.
+- techpack/{camera,display,video} sources come from the same
+  modules-and-devicetree repo (`kernel/msm-4.19/techpack/`). `techpack/display`
+  is required at vmlinux link time: built-in touchpanel / fingerprint /
+  charger drivers call `msm_drm_register_client` and friends. camera and video
+  build nothing under kona-perf_defconfig but must exist as directories.
+- The Android build system normally passes `OPLUS_FEATURE_*` make variables
+  into the kernel build; without them the make-level obj gating in subsystem
+  Makefiles skips implementations (ufsfeature, ufs latency hist, router boost,
+  process reclaim, task_mem) whose call sites are compiled unconditionally
+  (the CPP -D macros are always on). The workflow passes the required set
+  (`OPLUS_FEATURES` env in the workflow) with the stock values.
+- No kernel config deviations: stock `vendor/kona-perf_defconfig` is used
+  as-is (fsa4480 included; it links against the display techpack).
 - Devicetree + oplus vendor sources from
   [OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8250](https://github.com/OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8250)
   are copied into the kernel tree's `vendor/` directory: `vendor/qcom/proprietary/devicetree-4.19`
