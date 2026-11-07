@@ -133,7 +133,7 @@ jobs:
           # Stock code was built with older sdclang; clang 11 is stricter.
           # Downgrade the tree's -Werror= diagnostic classes to plain warnings
           # (same policy classes as Makefile lines 1041-1049).
-          export KCFLAGS="-Wno-error=strict-prototypes -Wno-error=implicit-int -Wno-error=date-time -Wno-error=incompatible-pointer-types -Wno-error=designated-init"
+          export KCFLAGS="-Wno-error=strict-prototypes -Wno-error=implicit-int -Wno-error=date-time -Wno-error=incompatible-pointer-types"
           make O=out ARCH=arm64 \
             CC=clang \
             CROSS_COMPILE=aarch64-linux-gnu- \
