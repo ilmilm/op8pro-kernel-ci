@@ -93,8 +93,20 @@ jobs:
           if [ -f "$KDIR/techpack/display/oplus/Makefile_back" ] && [ ! -f "$KDIR/techpack/display/oplus/Makefile" ]; then
             cp "$KDIR/techpack/display/oplus/Makefile_back" "$KDIR/techpack/display/oplus/Makefile"
           fi
+          # build oplus_adfr.o unconditionally (stock gates it on
+          # OPLUS_FEATURE_ADFR_KERNEL which the Android build sets)
+          sed -i '/^ifeq (\$(OPLUS_FEATURE_ADFR_KERNEL),yes)$/d; /^endif #\/\* OPLUS_FEATURE_ADFR_KERNEL \*\/$/d' \
+            "$KDIR/techpack/display/oplus/Makefile"
+          grep -c "oplus_adfr.o" "$KDIR/techpack/display/oplus/Makefile"
           sed -i 's|^#obj-\$(CONFIG_DRM_OPLUS) += oplus/|obj-\$(CONFIG_DRM_OPLUS) += oplus/|' "$KDIR/techpack/display/Makefile"
           grep -n "CONFIG_DRM_OPLUS" "$KDIR/techpack/display/Makefile"
+          # Remove the ../oplus objects from the msm_drm composite in
+          # msm/Makefile - otherwise the same sources are linked twice
+          # (oplus/built-in.a AND msm_drm.o) and vmlinux fails with
+          # multiple-definition errors.
+          sed -i '/^msm_drm-\$(CONFIG_DRM_OPLUS) += \.\.\/oplus\//,+12d' "$KDIR/techpack/display/msm/Makefile"
+          sed -i '/^ifeq (\$(OPLUS_FEATURE_ADFR_KERNEL),yes)$/,+2d' "$KDIR/techpack/display/msm/Makefile"
+          grep -c '\.\./oplus/' "$KDIR/techpack/display/msm/Makefile" || true
           rm -rf dtrepo
           # Compiled oplus charger code reaches the QC power-supply headers via
           # quoted includes like "../../../../kernel/msm-4.19/drivers/power/
