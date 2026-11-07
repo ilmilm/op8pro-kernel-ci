@@ -112,6 +112,15 @@ jobs:
           sed -i '/^msm_drm-\$(CONFIG_DRM_OPLUS) += \.\.\/oplus\//,+12d' "$KDIR/techpack/display/msm/Makefile"
           sed -i '/^ifeq (\$(OPLUS_FEATURE_ADFR_KERNEL),yes)$/,+2d' "$KDIR/techpack/display/msm/Makefile"
           grep -c '\.\./oplus/' "$KDIR/techpack/display/msm/Makefile" || true
+          # vmlinux.lds.S places .bss.rtic in a second .bss output section
+          # AFTER _end; old Android binutils tolerated it, ld >= 2.4x places
+          # it beyond ADR_PREL reach of .text ("relocation truncated to fit").
+          # Merge the RTIC bss into the main BSS_SECTION and drop the extra
+          # .bss block so section placement is deterministic.
+          sed -i 's|^\tBSS_SECTION(0, 0, 0)$|\t. = ALIGN(PAGE_SIZE);\n\tKEEP(*(.bss.rtic));\n\t. = ALIGN(PAGE_SIZE);\n\tBSS_SECTION(0, 0, 0)|' \
+            "$KDIR/arch/arm64/kernel/vmlinux.lds.S"
+          sed -i '/^\t\.bss : {.*bss segment/,/^\t}$/d' "$KDIR/arch/arm64/kernel/vmlinux.lds.S"
+          grep -n "bss.rtic\|BSS_SECTION" "$KDIR/arch/arm64/kernel/vmlinux.lds.S"
           rm -rf dtrepo
           # Compiled oplus charger code reaches the QC power-supply headers via
           # quoted includes like "../../../../kernel/msm-4.19/drivers/power/
