@@ -85,6 +85,16 @@ jobs:
           cp -a dtrepo/kernel/msm-4.19/techpack/. "$KDIR/techpack/"
           test -f "$KDIR/techpack/display/Makefile"
           test -f "$KDIR/techpack/display/msm/msm_atomic.c"
+          # Activate the oplus display glue: the dt-repo snapshot ships it
+          # disabled (oplus/Makefile renamed to Makefile_back and the
+          # obj-$(CONFIG_DRM_OPLUS) line commented out), but the stock kernel
+          # links oplus_adfr_* / msm_drm_* from it (konadisp.conf exports
+          # CONFIG_DRM_OPLUS=y unconditionally).
+          if [ -f "$KDIR/techpack/display/oplus/Makefile_back" ] && [ ! -f "$KDIR/techpack/display/oplus/Makefile" ]; then
+            cp "$KDIR/techpack/display/oplus/Makefile_back" "$KDIR/techpack/display/oplus/Makefile"
+          fi
+          sed -i 's|^#obj-\$(CONFIG_DRM_OPLUS) += oplus/|obj-\$(CONFIG_DRM_OPLUS) += oplus/|' "$KDIR/techpack/display/Makefile"
+          grep -n "CONFIG_DRM_OPLUS" "$KDIR/techpack/display/Makefile"
           rm -rf dtrepo
           # Compiled oplus charger code reaches the QC power-supply headers via
           # quoted includes like "../../../../kernel/msm-4.19/drivers/power/
