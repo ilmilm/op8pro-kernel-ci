@@ -1,0 +1,62 @@
+# op8pro-kernel-ci
+
+GitHub Actions CI for the OnePlus 8 Pro (IN2020, SM8250/kona) Linux 4.19 kernel.
+
+## What it builds
+
+Source: [OnePlusOSS/android_kernel_oneplus_sm8250](https://github.com/OnePlusOSS/android_kernel_oneplus_sm8250)
+branch `oneplus/sm8250_t_13.1_op8` (shallow clone), defconfig
+`arch/arm64/configs/vendor/kona-perf_defconfig`.
+
+- Toolchain: AOSP clang r399163b (mirror: AOSP-11/prebuilts_clang_host_linux-x86_clang-r399163b)
+  + GNU aarch64 binutils (`CROSS_COMPILE=aarch64-linux-gnu-`).
+  `CC=clang` is passed on the make command line, bypassing the python2-only
+  `scripts/gcc-wrapper.py` (the tree's intended invocation
+  `REAL_CC=<clang> CLANG_TRIPLE=aarch64-linux-gnu-` needs python2, which GH
+  runners no longer provide).
+- `TECHPACK=` skips the empty gitlink dirs `techpack/{camera,display,video}`
+  (their sources live in separate repos; stock vendor modules stay in use).
+- Devicetree sources from
+  [OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8250](https://github.com/OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8250)
+  are placed at `vendor/qcom/proprietary/devicetree-4.19`, which is what the
+  git symlink `arch/arm64/boot/dts/vendor` points at. `BRAND_SHOW_FLAG=oneplus`
+  selects the OnePlus sm8250 panel dirs.
+- Targets: `Image.gz dtbs modules` -> Image (uncompressed), Image.gz,
+  `dtb.img` (cat of `out/arch/arm64/boot/dts/vendor/*/*.dtb`, same recipe as
+  AndroidKernel.mk line 211).
+
+Expected release string / vermagic base: `4.19.157-perf+`
+(`CONFIG_LOCALVERSION="-perf"`, `CONFIG_LOCALVERSION_AUTO` unset, untagged
+shallow tree -> "+" suffix). The workflow verifies it via
+`out/include/generated/utsrelease.h`, the vmlinux banner, and `modinfo
+-F vermagic` on a built module, and prints all three to the log.
+
+## Artifacts
+
+Per run (artifact name `op8pro-kernel-<sha>`):
+
+- `Image` - uncompressed arm64 kernel
+- `Image.gz` - gzip variant (not used on this device, built for reference)
+- `dtb.img` - concatenated vendor dtbs
+- `OnePlus8Pro-kernel-4.19.157-perf-<sha>.zip` - AnyKernel3 flashable zip
+  (flashes Image to the active slot's boot partition; dtb.img included for
+  manual vendor_boot repacking - see README-FLASH.txt in the zip)
+- `.config` - final kernel config
+- `build.log` - full build log
+
+sha256 of all artifacts is printed in the "sha256 of artifacts" step.
+
+## Usage
+
+Runs on every push to `main`, or manually: Actions -> build-op8pro-kernel ->
+Run workflow.
+
+```sh
+gh workflow run build.yml --ref main
+gh run watch   # or poll with: gh run view <id>
+```
+
+Flashable zip semantics: OnePlus 8 Pro is A/B with bootimage header v2 and an
+uncompressed kernel; the AK3 zip uses `split_boot` + `flash_boot`, i.e. it
+writes the raw Image to `boot_a`/`boot_b` and touches neither ramdisk nor
+dtbo. Bootloader-side dtb comes from vendor_boot and stays stock.

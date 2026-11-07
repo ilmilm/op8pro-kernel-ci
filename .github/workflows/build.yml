@@ -1,0 +1,147 @@
+name: build-op8pro-kernel
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+env:
+  KERNEL_REPO: OnePlusOSS/android_kernel_oneplus_sm8250
+  KERNEL_BRANCH: oneplus/sm8250_t_13.1_op8
+  DT_REPO: OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8250
+  CLANG_MIRROR: AOSP-11/prebuilts_clang_host_linux-x86_clang-r399163b
+  AK3_REPO: osm0sis/AnyKernel3
+
+jobs:
+  build:
+    name: kona-perf Image + dtb.img + AnyKernel3
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+          echo "--- after cleanup ---"
+          df -h
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq bc bison flex libssl-dev cpio kmod \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+
+      # Check out this CI repo (provides ak3/anykernel.sh and docs)
+      - name: Checkout CI repo
+        uses: actions/checkout@v4
+        with:
+          path: ci
+
+      - name: Clone kernel source
+        run: |
+          git clone --depth=1 --single-branch \
+            --branch "$KERNEL_BRANCH" \
+            "https://github.com/$KERNEL_REPO" kernel
+          echo "kernel HEAD: $(git -C kernel rev-parse HEAD)"
+          test -f kernel/arch/arm64/configs/vendor/kona-perf_defconfig
+          # dt vendor entry is a git symlink -> vendor/qcom/proprietary/devicetree-4.19
+          cat kernel/arch/arm64/boot/dts/vendor
+
+      - name: Place devicetree sources at symlink target
+        run: |
+          git clone --depth=1 --single-branch \
+            --branch "$KERNEL_BRANCH" \
+            "https://github.com/$DT_REPO" dtrepo
+          mkdir -p kernel/vendor/qcom/proprietary
+          cp -a dtrepo/vendor/qcom/proprietary/devicetree-4.19 kernel/vendor/qcom/proprietary/
+          test -f kernel/vendor/qcom/proprietary/devicetree-4.19/qcom/kona.dts
+          test -f kernel/vendor/qcom/proprietary/devicetree-4.19/Makefile
+          echo "devicetree-4.19 placed OK"
+
+      - name: Install clang r399163b
+        run: |
+          git clone --depth=1 \
+            "https://github.com/$CLANG_MIRROR" \
+            kernel/prebuilts-master/clang/host/linux-x86/clang-r399163b
+          kernel/prebuilts-master/clang/host/linux-x86/clang-r399163b/bin/clang --version
+
+      - name: Configure kernel (vendor/kona-perf_defconfig)
+        working-directory: kernel
+        run: |
+          export PATH="$PWD/prebuilts-master/clang/host/linux-x86/clang-r399163b/bin:$PATH"
+          # CC=clang (command-line) bypasses scripts/gcc-wrapper.py (python2-only).
+          # TECHPACK= skips empty gitlink dirs techpack/{camera,display,video}.
+          # BRAND_SHOW_FLAG=oneplus selects the OnePlus sm8250 panel dirs in
+          # vendor/qcom/proprietary/devicetree-4.19/Makefile.
+          make O=out ARCH=arm64 \
+            CC=clang \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            TECHPACK= BRAND_SHOW_FLAG=oneplus \
+            vendor/kona-perf_defconfig
+          echo "--- key config ---"
+          grep -E "^CONFIG_(ARCH_KONA|ARCH_QCOM|LOCALVERSION|MODVERSIONS|MODULE_SIG|PREEMPT|SMP|BUILD_ARM64_UNCOMPRESSED_KERNEL)" out/.config
+
+      - name: Build Image.gz, dtbs, modules
+        working-directory: kernel
+        shell: bash
+        run: |
+          export PATH="$PWD/prebuilts-master/clang/host/linux-x86/clang-r399163b/bin:$PATH"
+          make O=out ARCH=arm64 \
+            CC=clang \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            TECHPACK= BRAND_SHOW_FLAG=oneplus \
+            -j"$(nproc)" \
+            Image.gz dtbs modules 2>&1 | tee build.log
+          df -h
+
+      - name: Assemble dtb.img and verify release/vermagic
+        working-directory: kernel
+        run: |
+          # Same recipe as AndroidKernel.mk line 211
+          cat out/arch/arm64/boot/dts/vendor/*/*.dtb > out/dtb.img
+          echo "=== artifacts ==="
+          file out/arch/arm64/boot/Image
+          ls -la out/arch/arm64/boot/Image out/arch/arm64/boot/Image.gz out/dtb.img
+          echo "=== UTS_RELEASE ==="
+          cat out/include/generated/utsrelease.h
+          echo "=== Linux version banner in vmlinux ==="
+          strings out/vmlinux | grep -m1 "Linux version" || echo "WARN: banner not found"
+          MOD=$(find out -name '*.ko' | head -1)
+          echo "=== vermagic (ground truth from module: $MOD) ==="
+          modinfo -F vermagic "$MOD"
+
+      - name: Package AnyKernel3 zip
+        run: |
+          git clone --depth=1 "https://github.com/$AK3_REPO" ak3
+          cp ci/ak3/anykernel.sh ak3/anykernel.sh
+          cp kernel/out/arch/arm64/boot/Image ak3/Image
+          cp kernel/out/dtb.img ak3/dtb.img
+          cp ci/ak3/README-FLASH.txt ak3/README.txt
+          sha=${GITHUB_SHA::7}
+          ( cd ak3 && zip -r9 "../OnePlus8Pro-kernel-4.19.157-perf-$sha.zip" \
+              anykernel.sh Image dtb.img README.txt )
+          ls -la OnePlus8Pro-kernel-*.zip
+
+      - name: sha256 of artifacts
+        run: |
+          sha256sum \
+            kernel/out/arch/arm64/boot/Image \
+            kernel/out/arch/arm64/boot/Image.gz \
+            kernel/out/dtb.img \
+            OnePlus8Pro-kernel-*.zip
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: op8pro-kernel-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            kernel/out/arch/arm64/boot/Image
+            kernel/out/arch/arm64/boot/Image.gz
+            kernel/out/dtb.img
+            kernel/out/.config
+            kernel/build.log
+            OnePlus8Pro-kernel-*.zip
