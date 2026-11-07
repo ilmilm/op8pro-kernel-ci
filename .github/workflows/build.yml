@@ -46,7 +46,8 @@ jobs:
           echo "kernel HEAD: $(git -C kernel rev-parse HEAD)"
           test -f kernel/arch/arm64/configs/vendor/kona-perf_defconfig
           # dt vendor entry is a git symlink -> vendor/qcom/proprietary/devicetree-4.19
-          cat kernel/arch/arm64/boot/dts/vendor
+          # (dangling until the devicetree repo is placed, so use readlink, not cat)
+          readlink kernel/arch/arm64/boot/dts/vendor
 
       - name: Place devicetree sources at symlink target
         run: |
