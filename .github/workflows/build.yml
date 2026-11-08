@@ -120,6 +120,14 @@ jobs:
           # debug feature; harmless to omit on a CI kernel).
           sed -i 's|^#define __rticdata .*|#define __rticdata|' "$KDIR/include/linux/init.h"
           grep -n "__rticdata" "$KDIR/include/linux/init.h" | head -2
+          # genksyms (4.19) cannot parse "__packed" inside an exported
+          # function's parameter type -> no __crc_ symbol -> modern ld fails
+          # the -r vmlinux link on the dangling ABS32 reloc. The attribute on
+          # a parameter type reference is ABI-neutral (layout comes from the
+          # union definition), so drop it.
+          sed -i 's|union __packed gsi_channel_scratch val|union gsi_channel_scratch val|' \
+            "$KDIR/drivers/platform/msm/gsi/gsi.c"
+          grep -c "union gsi_channel_scratch val" "$KDIR/drivers/platform/msm/gsi/gsi.c"
           rm -rf dtrepo
           # Compiled oplus charger code reaches the QC power-supply headers via
           # quoted includes like "../../../../kernel/msm-4.19/drivers/power/
