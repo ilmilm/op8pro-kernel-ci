@@ -120,30 +120,14 @@ jobs:
           # debug feature; harmless to omit on a CI kernel).
           sed -i 's|^#define __rticdata .*|#define __rticdata|' "$KDIR/include/linux/init.h"
           grep -n "__rticdata" "$KDIR/include/linux/init.h" | head -2
-          # genksyms (4.19) cannot compute CRCs for exports whose signature
-          # references types containing ANONYMOUS struct members (fixed in
-          # newer genksyms). 10 gsi.c exports use such types (see
-          # include/linux/msm_gsi.h) -> no __crc_ symbols -> modern ld fails
-          # the -r vmlinux link on dangling ABS32 relocs. GSI is an in-tree
-          # API (IPA/GSI drivers are built-in), so drop these module exports.
-          python3 - "$KDIR/drivers/platform/msm/gsi/gsi.c" <<'PYEOF'
-          import re, sys
-          p = sys.argv[1]
-          s = open(p).read()
-          drop = ["gsi_write_evt_ring_scratch", "gsi_get_evt_ring_cfg",
-                  "gsi_set_evt_ring_cfg", "gsi_write_channel_scratch3_reg",
-                  "gsi_write_channel_scratch2_reg", "gsi_write_channel_scratch",
-                  "gsi_read_channel_scratch", "gsi_update_mhi_channel_scratch",
-                  "gsi_get_channel_cfg", "gsi_set_channel_cfg"]
-          n = 0
-          for name in drop:
-              s, c = re.subn(r"EXPORT_SYMBOL\(%s\);" % name,
-                             "/* EXPORT_SYMBOL(%s) removed for CI: genksyms cannot CRC anonymous-union params */" % name, s)
-              n += c
-          open(p, "w").write(s)
-          print("exports dropped:", n)
-          assert n == 10, "expected to remove exactly 10 exports"
-          PYEOF
+          # genksyms (4.19) fails to compute CRCs across this TU (anonymous
+          # struct members in msm_gsi.h/gsi_priv.h defeat its parser), leaving
+          # dangling __crc_ relocs that modern ld rejects. ld aborts at the
+          # first bad reloc, so fix it wholesale: GSI is an in-tree API
+          # (IPA/GSI drivers are built-in) - drop ALL module exports of gsi.c.
+          sed -i 's|^EXPORT_SYMBOL(\([a-zA-Z0-9_]*\));|/* EXPORT_SYMBOL(\1) removed for CI (genksyms CRC) */|' \
+            "$KDIR/drivers/platform/msm/gsi/gsi.c"
+          echo "gsi.c remaining EXPORT_SYMBOL: $(grep -c '^EXPORT_SYMBOL' "$KDIR/drivers/platform/msm/gsi/gsi.c" || true)"
           rm -rf dtrepo
           # Compiled oplus charger code reaches the QC power-supply headers via
           # quoted includes like "../../../../kernel/msm-4.19/drivers/power/
