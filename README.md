@@ -27,6 +27,19 @@ branch `oneplus/sm8250_t_13.1_op8` (shallow clone), defconfig
   (`OPLUS_FEATURES` env in the workflow) with the stock values.
 - No kernel config deviations: stock `vendor/kona-perf_defconfig` is used
   as-is (fsa4480 included; it links against the display techpack).
+- `__rticdata` (`.bss.rtic` section, its only user is `selinux_state`) is
+  neutralized: the stock lds puts that section after `_end` where modern ld
+  (2.4x) places it beyond ADR_PREL reach of .text. RTIC is a QTI scanner
+  debug feature; `selinux_state` now lives in normal zero-cleared .bss.
+- 10 `gsi.c` module exports are dropped (functions stay, in-kernel callers
+  unaffected): genksyms in 4.19 cannot compute CRCs for signatures that
+  reference types with anonymous struct/union members
+  (`include/linux/msm_gsi.h`), leaving dangling `__crc_*` relocs that
+  modern ld rejects. All GSI consumers (IPA/GSI drivers) are built-in.
+- Release string verified in CI: `UTS_RELEASE "4.19.157-perf+"`, vmlinux
+  banner `Linux version 4.19.157-perf+ ...`, and module vermagic
+  `4.19.157-perf+ SMP preempt mod_unload modversions aarch64` (modinfo on a
+  built .ko) - identical to the stock OPLUS kernel release string.
 - Devicetree + oplus vendor sources from
   [OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8250](https://github.com/OnePlusOSS/android_kernel_modules_and_devicetree_oneplus_sm8250)
   are copied into the kernel tree's `vendor/` directory: `vendor/qcom/proprietary/devicetree-4.19`
