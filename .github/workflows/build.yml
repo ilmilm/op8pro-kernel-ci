@@ -214,6 +214,11 @@ jobs:
             $OPLUS_FEATURES \
             -j"$(nproc)" \
             Image.gz dtbs modules 2>&1 | tee build.log
+          if [ ! -f out/arch/arm64/boot/Image ]; then
+            echo "=== build failed: generated vmlinux.lds lines 170-215 ==="
+            sed -n '170,215p' out/arch/arm64/kernel/vmlinux.lds
+            exit 1
+          fi
           df -h
 
       - name: Assemble dtb.img and verify release/vermagic
