@@ -115,12 +115,31 @@ jobs:
           # vmlinux.lds.S places .bss.rtic in a second .bss output section
           # AFTER _end; old Android binutils tolerated it, ld >= 2.4x places
           # it beyond ADR_PREL reach of .text ("relocation truncated to fit").
-          # Merge the RTIC bss into the main BSS_SECTION and drop the extra
-          # .bss block so section placement is deterministic.
-          sed -i 's|^\tBSS_SECTION(0, 0, 0)$|\t. = ALIGN(PAGE_SIZE);\n\tKEEP(*(.bss.rtic));\n\t. = ALIGN(PAGE_SIZE);\n\tBSS_SECTION(0, 0, 0)|' \
-            "$KDIR/arch/arm64/kernel/vmlinux.lds.S"
-          sed -i '/^\t\.bss : {.*bss segment/,/^\t}$/d' "$KDIR/arch/arm64/kernel/vmlinux.lds.S"
-          grep -n "bss.rtic\|BSS_SECTION" "$KDIR/arch/arm64/kernel/vmlinux.lds.S"
+          # Rewrite deterministically with python3: inline BSS_SECTION with
+          # *(.bss.rtic) inside the zero-cleared range, drop the extra block.
+          python3 - "$KDIR/arch/arm64/kernel/vmlinux.lds.S" <<'PYEOF'
+import re, sys
+p = sys.argv[1]
+s = open(p).read()
+inline = """\t. = ALIGN(0);
+\t__sbss_start = .;
+\t*(.sbss)
+\t*(.sbss.*)
+\t__bss_start = .;
+\t. = ALIGN(PAGE_SIZE);
+\t*(.bss.rtic)
+\t. = ALIGN(PAGE_SIZE);
+\t*(.bss)
+\t*(.bss.*)
+\t*(COMMON)
+\t__bss_stop = .;"""
+s2, n1 = re.subn(r"\tBSS_SECTION\(0, 0, 0\)\n", inline + "\n", s)
+s3, n2 = re.subn(r"\n\t\.bss : \{[^\n]*bss segment[^\n]*\n[^\n]*RTIC_BSS[^\n]*\n\t\}", "", s2)
+open(p, "w").write(s3)
+print("BSS_SECTION replaced:", n1, "| second .bss block removed:", n2)
+assert n1 == 1 and n2 == 1, "lds edit did not apply exactly once"
+PYEOF
+grep -n "bss.rtic\|__bss_start\|__bss_stop" "$KDIR/arch/arm64/kernel/vmlinux.lds.S"
           rm -rf dtrepo
           # Compiled oplus charger code reaches the QC power-supply headers via
           # quoted includes like "../../../../kernel/msm-4.19/drivers/power/
