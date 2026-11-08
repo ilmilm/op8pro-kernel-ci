@@ -112,34 +112,14 @@ jobs:
           sed -i '/^msm_drm-\$(CONFIG_DRM_OPLUS) += \.\.\/oplus\//,+12d' "$KDIR/techpack/display/msm/Makefile"
           sed -i '/^ifeq (\$(OPLUS_FEATURE_ADFR_KERNEL),yes)$/,+2d' "$KDIR/techpack/display/msm/Makefile"
           grep -c '\.\./oplus/' "$KDIR/techpack/display/msm/Makefile" || true
-          # vmlinux.lds.S places .bss.rtic in a second .bss output section
-          # AFTER _end; old Android binutils tolerated it, ld >= 2.4x places
-          # it beyond ADR_PREL reach of .text ("relocation truncated to fit").
-          # Rewrite deterministically with python3: inline BSS_SECTION with
-          # *(.bss.rtic) inside the zero-cleared range, drop the extra block.
-          python3 - "$KDIR/arch/arm64/kernel/vmlinux.lds.S" <<'PYEOF'
-          import re, sys
-          p = sys.argv[1]
-          s = open(p).read()
-          inline = """\t. = ALIGN(0);
-          \t__sbss_start = .;
-          \t*(.sbss)
-          \t*(.sbss.*)
-          \t__bss_start = .;
-          \t. = ALIGN(PAGE_SIZE);
-          \t*(.bss.rtic)
-          \t. = ALIGN(PAGE_SIZE);
-          \t*(.bss)
-          \t*(.bss.*)
-          \t*(COMMON)
-          \t__bss_stop = .;"""
-          s2, n1 = re.subn(r"\tBSS_SECTION\(0, 0, 0\)\n", inline + "\n", s)
-          s3, n2 = re.subn(r"\n\t\.bss : \{[^\n]*bss segment[^\n]*\n[^\n]*RTIC_BSS[^\n]*\n\t\}", "", s2)
-          open(p, "w").write(s3)
-          print("BSS_SECTION replaced:", n1, "| second .bss block removed:", n2)
-          assert n1 == 1 and n2 == 1, "lds edit did not apply exactly once"
-          PYEOF
-          grep -n "bss.rtic\|__bss_start\|__bss_stop" "$KDIR/arch/arm64/kernel/vmlinux.lds.S"
+          # The stock lds places .bss.rtic in a trailing .bss block after
+          # _end; modern ld places that section beyond ADR_PREL reach of
+          # .text ("relocation truncated to fit"). Its only user is
+          # selinux_state via the __rticdata macro - drop the special
+          # section so it lands in normal .bss (RTIC is a QTI scanner
+          # debug feature; harmless to omit on a CI kernel).
+          sed -i 's|^#define __rticdata .*|#define __rticdata|' "$KDIR/include/linux/init.h"
+          grep -n "__rticdata" "$KDIR/include/linux/init.h" | head -2
           rm -rf dtrepo
           # Compiled oplus charger code reaches the QC power-supply headers via
           # quoted includes like "../../../../kernel/msm-4.19/drivers/power/
@@ -213,10 +193,12 @@ jobs:
             BRAND_SHOW_FLAG=oneplus \
             $OPLUS_FEATURES \
             -j"$(nproc)" \
-            Image.gz dtbs modules 2>&1 | tee build.log
+            Image.gz dtbs modules 2>&1 | tee build.log || true
           if [ ! -f out/arch/arm64/boot/Image ]; then
             echo "=== build failed: generated vmlinux.lds lines 170-215 ==="
             sed -n '170,215p' out/arch/arm64/kernel/vmlinux.lds
+            echo "=== last 40 lines of build.log ==="
+            tail -40 build.log
             exit 1
           fi
           df -h
